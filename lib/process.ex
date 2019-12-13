@@ -1,42 +1,48 @@
 defmodule Xmlazy.Process do
   def wrap(parsed) when is_list(parsed) do
-    #IO.puts("1) parsed: #{inspect parsed}")
-    wrap_reduce(nil, parsed, [], [])
+    wrap_stacked([], parsed)
   end
-  def wrap_reduce(nil, [], [], [result]) do
-    #IO.puts("2) result: #{inspect result}")
-    result
+
+  ### WRAP STACKED
+
+  def wrap_stacked(
+    [{{:otag, otag_value, otag_properties}, []}],
+    [{:data, [data]}, {:ctag, otag_value}]
+  ) do
+    {otag_value, {:properties, otag_properties}, {:data, data}}
   end
-  def wrap_reduce(nil, [], [], result) do
-    #IO.puts("3) result: #{inspect result}")
-    result
+  def wrap_stacked(
+    [{{:otag, otag_value, otag_properties}, []}],
+    [{:data, data}, {:ctag, otag_value}]
+  ) do
+    {otag_value, {:properties, otag_properties}, {:data, data}}
   end
-  def wrap_reduce(nil, [{:otag, _otag_value, _properties} = otag| remains] = to_process, [], []) when is_list(to_process) do
-    #IO.puts("4) new otag: #{inspect otag_value}| remains: #{inspect remains}")
-    wrap_reduce(otag, remains, [], [])
+  def wrap_stacked(
+    [{{:otag, otag_value, otag_properties}, [data]}],
+    [{:ctag, otag_value}]
+  ) do
+    {otag_value, {:properties, otag_properties}, {:data, data}}
   end
-  def wrap_reduce(nil, [{:otag, _otag_value, _properties} = otag| remains], [], result) do
-    #IO.puts("5) new otag: #{inspect otag_value}| remains: #{inspect remains}| result: #{inspect result}")
-    wrap_reduce(otag, remains, [], result)
+  def wrap_stacked(
+    [{{:otag, otag_value, otag_properties}, data}],
+    [{:ctag, otag_value}]
+  ) do
+    {otag_value, {:properties, otag_properties}, {:data, data}}
   end
-  def wrap_reduce({:otag, otag_value, props}, [{:ctag, otag_value}| remains] = parsed, processed, result) when is_list(parsed) do
-    #IO.puts("6) ctag_found: #{inspect otag_value}| remains: #{inspect remains}| processed: #{inspect processed}| result: #{inspect result}")
-    wrap_reduce(
-      nil,
-      remains,
-      [],
-      result ++ [
-        {otag_value, {:properties, props}, {:data, wrap_reduce(nil, processed, [], [])}}
-      ]
-    )
+  def wrap_stacked(
+    [{{:otag, otag_value, otag_props} = otag, otag_data}, {{:otag, master_otag_value, master_otag_props} = master_otag, master_otag_data} | otags],
+    [{:data, data}, {:ctag, otag_value} | remains]
+  ) do
+    wrap_stacked([{master_otag, master_otag_data ++ [{otag_value, {:properties, otag_props}, {:data, data}}]}] ++ otags, remains)
   end
-  def wrap_reduce({:otag, otag_value, props}, [{:data, data}, {:ctag, otag_value}| remains] = parsed, [], result) when is_list(parsed) do
-    #IO.puts("7) simple block #{inspect otag_value}| parsed: #{inspect parsed} | result: #{inspect result}")
-    wrap_reduce(nil, remains, [], result ++ [{otag_value, {:properties, props}, {:data, data}}])
+  def wrap_stacked(
+    [{{:otag, otag_value, otag_props} = otag, otag_data}, {{:otag, master_otag_value, master_otag_props} = master_otag, master_otag_data} | otags],
+    [{:ctag, otag_value}| remains]
+  ) do
+    wrap_stacked([{master_otag, master_otag_data ++ [{otag_value, {:properties, otag_props}, {:data, otag_data}}]}] ++ otags, remains)
   end
-  def wrap_reduce(otag_value, [h| remains] = parsed, processed, result) when is_list(parsed) do
-    #IO.puts("8) add_tag #{inspect h}| parsed: #{inspect remains} | processed: #{inspect processed} | result: #{inspect result}")
-    wrap_reduce(otag_value, remains, processed ++ [h], result)
+  def wrap_stacked(otags, [{:otag, _, _} = otag| remains]) do
+    wrap_stacked([{otag, []}] ++ otags, remains)
   end
 
 
@@ -98,6 +104,9 @@ defmodule Xmlazy.Process do
     get_next_step(remains, processed ++ [h], :data)
   end
 
+  def get_next_step(["/", ">"| remains], tag, :otag_opened) do
+    {{:otag, to_string(tag), nil}, {:data, nil}, {:ctag, to_string(tag)}, remains}
+  end
   def get_next_step([">"| remains], processed, :otag_opened) do
     {{:otag, to_string(processed), nil}, remains}
   end
