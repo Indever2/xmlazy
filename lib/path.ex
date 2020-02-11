@@ -14,8 +14,8 @@
     [{:property, "property", "color"}, {:property, "value", "blue"}]}
   ]
   """
-  defp parse_path_string(path) when is_binary(path) do
-    path_get_next([], String.codepoints(path), [], :tag)
+  def parse_path_string(path) when is_binary(path) do
+    path_get_next([], String.to_charlist(path), [], :tag)
   end
 
   defp path_get_next(_result, [], [], :tag) do
@@ -27,23 +27,23 @@
   defp path_get_next(result, [], acc, :cond_end) do
     result ++ [process_token(acc)]
   end
-  defp path_get_next(result, ["."|remains], acc, :tag) do
+  defp path_get_next(result, [?.|remains], acc, :tag) do
     path_get_next(result ++ [process_token(acc)], remains, [], :tag)
   end
-  defp path_get_next(result, ["{"|remains], acc, :tag) do
+  defp path_get_next(result, [?{|remains], acc, :tag) do
     path_get_next(result, remains, {acc, []}, :cond_started)
   end
   defp path_get_next(result, [h|remains], acc, :tag) do
     path_get_next(result, remains, acc ++ [h], :tag)
   end
 
-  defp path_get_next(result, ["}"|remains], acc, :cond_started) do
+  defp path_get_next(result, [?}|remains], acc, :cond_started) do
     path_get_next(result, remains, acc, :cond_end)
   end
   defp path_get_next(result, [h|remains], {tag, condition}, :cond_started) do
     path_get_next(result, remains, {tag, condition ++ [h]}, :cond_started)
   end
-  defp path_get_next(result, ["."|remains], acc, :cond_end) do
+  defp path_get_next(result, [?.|remains], acc, :cond_end) do
     path_get_next(result ++ [process_token(acc)], remains, [], :tag)
   end
   defp path_get_next(result, [_|remains], acc, :cond_end) do
@@ -90,14 +90,21 @@
   end
   def get_nodes(parsed_xml, {node, properties}) when is_list(parsed_xml) do
     result = Enum.filter(parsed_xml, fn item -> get_nodes(item, {node, properties}) != [] end)
+
     case result do
       [] -> []
       [{^node, {:properties, _}, {:data, result}}] -> Xmlazy.normalize_binary result
       _ ->
-        Enum.map(result, fn {^node, {:properties, _}, {:data, data}} -> Xmlazy.normalize_binary data end)
+        Enum.map(
+          result,
+          fn
+            {^node, {:properties, _}, {:data, data}} -> Xmlazy.normalize_binary data
+            list when is_list(list) -> Xmlazy.normalize_binary(Xmlazy.get_path(list, node))
+          end
+        )
     end
   end
-  def get_nodes(parsed_xml, not_matched_condition) do
+  def get_nodes(_parsed_xml, _not_matched_condition) do
     []
   end
 

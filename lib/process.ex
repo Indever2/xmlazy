@@ -30,13 +30,13 @@ defmodule Xmlazy.Process do
     {otag_value, {:properties, otag_properties}, {:data, data}}
   end
   def wrap_stacked(
-    [{{:otag, otag_value, otag_props} = otag, otag_data}, {{:otag, master_otag_value, master_otag_props} = master_otag, master_otag_data} | otags],
+    [{{:otag, otag_value, otag_props}, _otag_data}, {{:otag, _master_otag_value, _master_otag_props} = master_otag, master_otag_data} | otags],
     [{:data, data}, {:ctag, otag_value} | remains]
   ) do
     wrap_stacked([{master_otag, master_otag_data ++ [{otag_value, {:properties, otag_props}, {:data, data}}]}] ++ otags, remains)
   end
   def wrap_stacked(
-    [{{:otag, otag_value, otag_props} = otag, otag_data}, {{:otag, master_otag_value, master_otag_props} = master_otag, master_otag_data} | otags],
+    [{{:otag, otag_value, otag_props}, otag_data}, {{:otag, _master_otag_value, _master_otag_props} = master_otag, master_otag_data} | otags],
     [{:ctag, otag_value}| remains]
   ) do
     wrap_stacked([{master_otag, master_otag_data ++ [{otag_value, {:properties, otag_props}, {:data, otag_data}}]}] ++ otags, remains)
@@ -47,9 +47,15 @@ defmodule Xmlazy.Process do
 
 
   def parse({:error, _reason} = err, _), do: err
+  def parse({:empty, []}, acc), do: acc
+  def parse({:empty, remains}, acc) do
+    parse(get_next(remains), acc)
+  end
+
   def parse({whatever, []}, acc), do: acc ++ [whatever]
-  def parse(xml, acc) when is_list(xml) or is_binary(xml) do
-    parse(get_next(xml), acc)
+  def parse(xml, acc) when is_binary(xml) do
+    new_xml = String.to_charlist(xml)
+    parse(get_next(new_xml), acc)
   end
   def parse({{:otag, value, properties}, {:data, nil} = data, {:ctag, value} = ctag, remains}, acc) do
     parse(
@@ -70,9 +76,8 @@ defmodule Xmlazy.Process do
     parse(get_next(remains), acc ++ [tag])
   end
 
-  def get_next(""), do: {:error, :nodata}
   def get_next([]), do: {:error, :nodata}
-  def get_next(xml) when is_binary(xml) or is_list(xml) do
+  def get_next(xml) when is_list(xml) do
     get_next_step(xml)
   end
 
@@ -83,10 +88,13 @@ defmodule Xmlazy.Process do
     get_next_step(String.codepoints(xml), [], nil)
   end
 
-  def get_next_step(["<", "/"| remains], [], nil) do
+  def get_next_step([?<, ?/| remains], [], nil) do
     get_next_step(remains, [], :ctag_opened)
   end
-  def get_next_step(["<"| remains], [], nil) do
+  def get_next_step([?<, ??| remains], [], nil) do
+    get_next_step(remains, [], :xml_tag_opened)
+  end
+  def get_next_step([?<| remains], [], nil) do
     get_next_step(remains, [], :otag_opened)
   end
   def get_next_step([h| remains], [], nil) do
@@ -97,38 +105,44 @@ defmodule Xmlazy.Process do
     {:error, "Unexpected end of term after: '#{to_string(processed)}'"}
   end
 
-  def get_next_step(["<"| _] = remains, processed, :data) do
+  def get_next_step([?<| _] = remains, processed, :data) do
     {{:data, to_string(processed)}, remains}
   end
   def get_next_step([h| remains], processed, :data) do
     get_next_step(remains, processed ++ [h], :data)
   end
 
-  def get_next_step(["/", ">"| remains], tag, :otag_opened) do
+  def get_next_step([?/, ?>| remains], tag, :otag_opened) do
     {{:otag, to_string(tag), nil}, {:data, nil}, {:ctag, to_string(tag)}, remains}
   end
-  def get_next_step([">"| remains], processed, :otag_opened) do
+  def get_next_step([?>| remains], processed, :otag_opened) do
     {{:otag, to_string(processed), nil}, remains}
   end
+  def get_next_step([??, ?>| remains], [], :xml_tag_opened) do
+    {:empty, remains}
+  end
   # PROPERTY
-  def get_next_step([" "| remains], processed, :otag_opened) do
+  def get_next_step([?\s| remains], processed, :otag_opened) do
     get_next_step(remains, processed, [], :otag_property)
   end
   def get_next_step([h | remains], processed, :otag_opened) do
     get_next_step(remains, processed ++ [h], :otag_opened)
   end
 
-  def get_next_step([">"| remains], processed, :ctag_opened) do
+  def get_next_step([?>| remains], processed, :ctag_opened) do
     {{:ctag, to_string(processed)}, remains}
   end
   def get_next_step([h | remains], processed, :ctag_opened) do
     get_next_step(remains, processed ++ [h], :ctag_opened)
   end
+  def get_next_step([_ | remains], [], :xml_tag_opened) do
+    get_next_step(remains, [], :xml_tag_opened)
+  end
 
-  def get_next_step(["/", ">"| remains], tag, property, :otag_property) do
+  def get_next_step([?/, ?>| remains], tag, property, :otag_property) do
     {{:otag, to_string(tag), to_string(property)}, {:data, nil}, {:ctag, to_string(tag)}, remains}
   end
-  def get_next_step([">"| remains], tag, property, :otag_property) do
+  def get_next_step([?>| remains], tag, property, :otag_property) do
     {{:otag, to_string(tag), to_string(property)}, remains}
   end
   def get_next_step([h| remains], tag, property, :otag_property) do
