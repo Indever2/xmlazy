@@ -26,3 +26,10 @@ xmlazy-*.tar
 
 /.elixir_ls/
 
+# Some tmp files
+
+/priv/
+.DS_Store
+mix.lock
+*.xml
+
